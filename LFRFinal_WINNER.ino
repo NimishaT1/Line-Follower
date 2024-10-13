@@ -337,6 +337,7 @@ void explore(){
     }
 
   } else if (checkPosition("00000")) {
+    //TODO add  B to the turns list;
     turnBack();
   }
 }
