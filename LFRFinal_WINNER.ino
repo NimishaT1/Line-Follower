@@ -7,6 +7,9 @@
 #define overlap 150 //line centering post calibration
 #define EN1 9
 #define EN2 10
+
+//IN is direction control
+//EN is speed control
 //LEFT: EN1 = 9  IN1 = 5  IN2 = 4 RIGHT: EN2 = 10  IN3 = 2  IN4 = 3
 
 //PID constants subject to change 
@@ -19,6 +22,9 @@ float Ki = 0.005;
 long P = 0, I = 0, D = 0, PIDvalue = 0, PrevError = 0;
 
 //sensor PINS and Sensors
+
+
+
 const byte SensorPin[IR] = {A0,A1,A2,A3,A4}; //sensor pins array
 int Sensors[IR]; //array that stores sensor values
 int MinSensors[IR]; //array that stores minimum values of sensors
@@ -50,12 +56,16 @@ int IN3 = 2;
 int IN4 = 3;
 
 //Motor Speeds;
-int SpeedA = 0;
-int SpeedB = 0;
+int speedLeft = 0;
+int speedRight = 0;
 
 //Switch Pins
 int StartSwitch = 11;
 int switchState = 0;
+
+bool detectingJunction = false;
+bool turning = false;
+
 
 //function prototypes
 void Calibrate(void);
@@ -69,6 +79,8 @@ void leftRev(int speed);
 void check_and_toggle_switch(void);
 void testSuite(void);
 
+bool checkPosition(char *str)
+ 
 void setup(){
   Serial.begin(500000);
   delay(10000); //wait for a while before doing calibration
@@ -107,8 +119,16 @@ void setup(){
 void loop(){
   //control sequence
   check_and_toggle_switch();
+
+  //Look for line
   GetSensorValues();
+
+  //Track turning
   CalculatePID();
+
+  adjustSpeed();
+
+  //Follow line
   MotorControl(Running);
   testSuite();
 }
@@ -124,6 +144,7 @@ void Calibrate(){
   for(int i = 0; i<7000;i++){
     for (int j = 0; j<IR; j++){
       Sensors[j] = analogRead(SensorPin[j]);
+      //MinSensors[j] = min(MinSensors[j], Sensors[j]);
       if (Sensors[j] < MinSensors[j]) MinSensors[j] = Sensors[j];
       if (Sensors[j] > MaxSensors[j]) MaxSensors[j] = Sensors[j];
     }
@@ -142,20 +163,28 @@ void GetSensorValues(){
 
   for (int i = 0; i<IR; i++){
     Sensors[i] = analogRead(SensorPin[i]);
+    //ks,0 -> 1000,0
+    //smin < s < smax
     Sensors[i] = map(Sensors[i], MinSensors[i], MaxSensors[i], KS, 0); //print this out during testing to see what kinda values we get (high vals for black)
     Sensors[i] = constrain(Sensors[i], 0, KS);
     // threshold for line detect
     if (Sensors[i]>=450) lineDetected = true;
     if (Sensors[i] >= 50){
+      //Weight sensor values by position of sensor?
+      //Center sensor should have least priority and extreme sensors should have most priority
       weightedSum += long(Sensors[i])*(i*KS);
       sum += Sensors[i];
     }
   }
 
-  if (lineDetected) positionX = weightedSum/sum;
+  if (lineDetected) positionX = weightedSum/sum; // stores the weighted mean of the index of the ir sensors
   else if (positionX < positionM) positionX = 0;
-  else positionX = positionM*2;
+  else positionX = positionM*2; //basically 4 lol
   positionH = positionX - positionM; // testing ke liye this will be used otherwise it is pointless
+
+  //Position x = 0 is left and position x = 4 is right
+  //0 1 2 3 4
+  //-2 -1 0 1 2
 }
 
 void CalculatePID(){
@@ -166,16 +195,28 @@ void CalculatePID(){
   PrevError = P;
 }
 
+bool checkPosition(char *str){
+  //Refresh Sensor Cache
+  GetSensorValues();
+  bool match = true;
+  for(int i = 0; i < IR and match; i++){
+    switch (str[i])
+    {
+    case '1':
+      match = Sensors[i]>=450;
+      break;
+    case '0':
+      match = Sensors[i]<450;
+      break;
+    }
+  }
+  return match;
+}
+
 void MotorControl(int running){
-  int speedLeft = 0, speedRight = 0;
-
   if(lineDetected){
+    //Case 1
     if(running){
-      speedLeft = BaseSpeed + PIDvalue;
-      speedRight = BaseSpeed - PIDvalue;
-
-      speedLeft = constrain(speedLeft, 0, 255);
-      speedRight = constrain(speedRight, 0, 255);
       sL = speedLeft;
       sR = speedRight;
       //motor A
@@ -257,6 +298,49 @@ void MotorControl(int running){
   }
 }
 
+void explore(){
+  //Implementing LSRB
+
+  if(checkPosition("11111")){
+    detectingJunction = true;
+    while(!checkPosition("0***0")){
+      delay(10);
+    }
+    
+    detectingJunction = false;
+    //TODO Add L to the turns list;
+    turnLeft();
+  } else if (checkPosition("111*0")) {
+    //Turn left
+    detectingJunction = true;
+    while(!checkPosition("0***0")){
+      delay(10);
+    }
+    
+    detectingJunction = false;
+    //TODO Add L to the turns list;
+    turnLeft();
+
+  } else if (checkPosition("0*111")) {
+    //Turn right
+    detectingJunction = true;
+    while(!checkPosition("0***0")){
+      delay(10);
+    }
+
+    detectingJunction = false;
+    if(checkPosition("**1**")){
+      //TODO add S to the turns list;
+    } else {
+      //TODO add R to the turns list;
+      turnRight();
+    }
+
+  } else if (checkPosition("00000")) {
+    turnBack();
+  }
+}
+
 void leftFwd(int speed){
   digitalWrite(IN1, HIGH);
   digitalWrite(IN2, LOW);
@@ -279,6 +363,64 @@ void rightRev(int speed){
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, HIGH);
   analogWrite(EN2, speed);
+}
+
+void adjustSpeed(){
+  //Call after calculating PID Constants
+  speedLeft = BaseSpeed + PIDvalue;
+  speedRight = BaseSpeed - PIDvalue;
+
+  speedLeft = constrain(speedLeft, 0, 255);
+  speedRight = constrain(speedRight, 0, 255);
+}
+
+//Implement something to check if the turn is complete
+//Maybe check if only the middle sensor gives a reading??
+//PID should be able to handle the alighnment later
+
+void turnRight(){
+  turning = true;
+  leftFwd(speedLeft);
+  rightRev(speedLeft/3);
+
+  //Wait 1 second
+  delay(1000);
+
+  //keep checking if turn is complete
+  while(!checkPosition("0*1*0")){
+    delay(10);
+  }
+
+  turning = false;
+}
+
+void turnLeft() {
+  turning = true;
+  rightFwd(speedRight);
+  leftRev(speedRight/3);
+
+  //Wait 1 second
+  delay(1000);
+
+  //keep checking if turn is complete
+  while(!checkPosition("0*1*0")){
+    delay(10);
+  }
+
+  turning = false;
+}
+
+void turnBack() {
+  turning = true;
+  //Try turning at full speed???
+  leftRev(255);
+  rightFwd(255);
+
+  while(!checkPosition("0*1*0")){
+    delay(10);
+  }
+
+  turning = false;
 }
 
 void check_and_toggle_switch(){
