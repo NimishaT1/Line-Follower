@@ -1,5 +1,5 @@
 #define IR 5 //number of IR sensors
-#define BaseSpeed 80 //base speed of motors
+#define BaseSpeed 40 //base speed of motors
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
 #define RevSpeed 40 //backward speed of motors
@@ -8,15 +8,27 @@
 #define EN1 9
 #define EN2 10
 #define TPin 6
+#define Sens 550
+
+#define TPinLeft 8
+#define TPinRight 7
 
 //IN is direction control
 //EN is speed control
 //LEFT: EN1 = 9  IN1 = 5  IN2 = 4 RIGHT: EN2 = 10  IN3 = 2  IN4 = 3
 
 //PID constants subject to change 
-float Kp = 0.05;
-float Kd = 0.025;
-float Ki = 0.001;
+
+// for 60 speed
+// float Kp = 0.04;
+// float Kd = 0.08;
+// float Ki = 0.00;
+
+// for 40 speed
+float Kp = 0.015;
+float Kd = 0.04;
+float Ki = 0.00;
+
 // for 40 speed :Kp = 0.015; for 60 speed: 0.035
 //Kd = 0.3; 0.7
 //Ki = 0.005; 0.001
@@ -94,6 +106,8 @@ void setup(){
   pinMode(EN2, OUTPUT);//setting this to high will put Motor B in FWD
   pinMode(StartSwitch, INPUT_PULLUP);
   pinMode(TPin, OUTPUT);
+  pinMode(TPinLeft, OUTPUT);
+  pinMode(TPinRight, OUTPUT);
 
   // Motor A
   digitalWrite(IN1, HIGH);
@@ -104,6 +118,8 @@ void setup(){
   digitalWrite(IN4, LOW);
 
   analogWrite(TPin, 140);
+  digitalWrite(TPinLeft, 1);
+  digitalWrite(TPinRight, 1);
 
   // Switches
   //pinMode(StartSwitch, INPUT); 
@@ -118,6 +134,8 @@ void setup(){
   Serial.println("Calibration Ended");
   // Calibration End
   analogWrite(TPin, 0);
+  digitalWrite(TPinRight, 0);
+  digitalWrite(TPinLeft, 0);
   delay(500);
 }
 
@@ -127,12 +145,6 @@ void loop(){
 
   //Look for line
   GetSensorValues();
-
-  if(lineDetected){
-    analogWrite(TPin, 150);
-  } else {
-    analogWrite(TPin, 0);
-  }
 
   //Track turning
   CalculatePID();
@@ -154,7 +166,7 @@ void Calibrate(){
   double lastTime = millis();
   bool ledOn = true;
 
-  if(millis()-lastTime > 150){
+  if(millis()-lastTime > 250){
     ledOn = !ledOn;
     digitalWrite(LED_BUILTIN, ledOn);
     lastTime = millis();
@@ -187,13 +199,25 @@ void GetSensorValues(){
     Sensors[i] = map(Sensors[i], MinSensors[i], MaxSensors[i], KS, 0); //print this out during testing to see what kinda values we get (high vals for black)
     Sensors[i] = constrain(Sensors[i], 0, KS);
     // threshold for line detect
-    if (Sensors[i]>=550) lineDetected = true;
+    if (Sensors[i]>=Sens) lineDetected = true;
     if (Sensors[i] >= 50){
       //Weight sensor values by position of sensor?
       //Center sensor should have least priority and extreme sensors should have most priority
       weightedSum += long(Sensors[i])*(abs(i-2))*(i*KS);
       sum += (abs(i-2))*Sensors[i];
     }
+
+    // if(Sensors[0] >= Sens){
+    //   digitalWrite(TPinLeft, 1);
+    // } else {
+    //   digitalWrite(TPinLeft, 0);
+    // }
+
+    // if(Sensors[4] >= Sens){
+    //   digitalWrite(TPinRight, 1);
+    // } else {
+    //   digitalWrite(TPinRight, 0);
+    // }
   }
 
   if (lineDetected) positionX = weightedSum/sum; // stores the weighted mean of the index of the ir sensors
@@ -223,10 +247,10 @@ bool checkPosition(char *str){
     switch (str[i])
     {
     case '1':
-      match = Sensors[i]>=450;
+      match = Sensors[i]>=550;
       break;
     case '0':
-      match = Sensors[i]<450;
+      match = Sensors[i]<550;
       break;
     }
   }
@@ -235,7 +259,10 @@ bool checkPosition(char *str){
 
 void MotorControl(int running){
   
-  //explore();
+  if(running){
+    explore();
+
+  }
 
   if(lineDetected){
     //Case 1
@@ -407,34 +434,68 @@ void adjustSpeed(){
 //Maybe check if only the middle sensor gives a reading??
 //PID should be able to handle the alighnment later
 
+#define turnSpeed 30
+
 void turnRight(){
+  Serial.println("Turning Right...");
   turning = true;
-  leftFwd(speedLeft);
-  rightRev(speedLeft/3);
+  int c = 0;
+  bool online = true;
+  digitalWrite(TPinRight, 1);
+  leftFwd(0);
+  rightFwd(0);
+  delay(1000);
+  leftFwd(turnSpeed);
+  rightRev(turnSpeed);
 
   //Wait 1 second
-  delay(1000);
+  //delay(200);
 
-  //keep checking if turn is complete
-  while(!checkPosition("0*1*0")){
+  while(c < 2){
+    if(checkPosition("**1**") != online){
+      c++;
+      online = !online;
+    }
+
     delay(10);
   }
 
+  //keep checking if turn is complete
+  while(!checkPosition("**1**")){
+    delay(10);
+  }
+
+  digitalWrite(TPinRight, 0);
   turning = false;
 }
 
 void turnLeft() {
+  Serial.println("Turning Left...");
   turning = true;
-  rightFwd(speedRight);
-  leftRev(speedRight/3);
+  int c = 0;
+  bool online = true;
+  digitalWrite(TPinLeft, 1);
+  leftFwd(0);
+  rightFwd(0);
+  delay(1000);
+  rightFwd(turnSpeed);
+  leftRev(turnSpeed);
 
   //Wait 1 second
-  delay(1000);
+  //delay(200);
 
   //keep checking if turn is complete
-  while(!checkPosition("0*1*0")){
+
+  while(c < 2){
+    if(checkPosition("**1**") != online){
+      c++;
+      online = !online;
+    }
+
     delay(10);
   }
+
+  digitalWrite(TPinLeft, 0);
 
   turning = false;
 }
@@ -442,10 +503,10 @@ void turnLeft() {
 void turnBack() {
   turning = true;
   //Try turning at full speed???
-  leftRev(255);
-  rightFwd(255);
+  leftRev(turnSpeed);
+  rightFwd(turnSpeed);
 
-  while(!checkPosition("0*1*0")){
+  while(!checkPosition("**1**")){
     delay(10);
   }
 
@@ -455,7 +516,7 @@ void turnBack() {
 void check_and_toggle_switch(){
   switchState = digitalRead(StartSwitch);
   if (switchState != HIGH){
-    delay(300); // avoid repeated reading
+    delay(2000); // avoid repeated reading
     Running = !Running;
   }
 }
