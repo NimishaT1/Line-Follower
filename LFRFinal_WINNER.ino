@@ -1,21 +1,22 @@
 #define IR 5 //number of IR sensors
-#define BaseSpeed 40 //base speed of motors
+#define BaseSpeed 80 //base speed of motors
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
-#define RevSpeed 60 //backward speed of motors
+#define RevSpeed 40 //backward speed of motors
 #define KS 1000 // sensor factor used for calibration
 #define overlap 150 //line centering post calibration
 #define EN1 9
 #define EN2 10
+#define TPin 6
 
 //IN is direction control
 //EN is speed control
 //LEFT: EN1 = 9  IN1 = 5  IN2 = 4 RIGHT: EN2 = 10  IN3 = 2  IN4 = 3
 
 //PID constants subject to change 
-float Kp = 0.015;
-float Kd = 0.3;
-float Ki = 0.005;
+float Kp = 0.05;
+float Kd = 0.025;
+float Ki = 0.001;
 // for 40 speed :Kp = 0.015; for 60 speed: 0.035
 //Kd = 0.3; 0.7
 //Ki = 0.005; 0.001
@@ -79,11 +80,11 @@ void leftRev(int speed);
 void check_and_toggle_switch(void);
 void testSuite(void);
 
-bool checkPosition(char *str)
+bool checkPosition(char *str);
  
 void setup(){
   Serial.begin(500000);
-  delay(10000); //wait for a while before doing calibration
+  delay(5000); //wait for a while before doing calibration
   // Set all the motor control pins to outputs
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT); //originally setting this to high sets left to fwd
@@ -92,6 +93,7 @@ void setup(){
   pinMode(IN4, OUTPUT); //originally setting this to high sets right to fwd
   pinMode(EN2, OUTPUT);//setting this to high will put Motor B in FWD
   pinMode(StartSwitch, INPUT_PULLUP);
+  pinMode(TPin, OUTPUT);
 
   // Motor A
   digitalWrite(IN1, HIGH);
@@ -100,6 +102,8 @@ void setup(){
   // Motor B
   digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
+
+  analogWrite(TPin, 140);
 
   // Switches
   //pinMode(StartSwitch, INPUT); 
@@ -113,6 +117,7 @@ void setup(){
   digitalWrite(IN4, LOW);
   Serial.println("Calibration Ended");
   // Calibration End
+  analogWrite(TPin, 0);
   delay(500);
 }
 
@@ -123,10 +128,14 @@ void loop(){
   //Look for line
   GetSensorValues();
 
+  if(lineDetected){
+    analogWrite(TPin, 150);
+  } else {
+    analogWrite(TPin, 0);
+  }
+
   //Track turning
   CalculatePID();
-
-  adjustSpeed();
 
   //Follow line
   MotorControl(Running);
@@ -141,6 +150,16 @@ void Calibrate(){
     MaxSensors[i] = Sensors[i];
   }
   // calibrate sensors
+
+  double lastTime = millis();
+  bool ledOn = true;
+
+  if(millis()-lastTime > 150){
+    ledOn = !ledOn;
+    digitalWrite(LED_BUILTIN, ledOn);
+    lastTime = millis();
+  }
+
   for(int i = 0; i<7000;i++){
     for (int j = 0; j<IR; j++){
       Sensors[j] = analogRead(SensorPin[j]);
@@ -168,12 +187,12 @@ void GetSensorValues(){
     Sensors[i] = map(Sensors[i], MinSensors[i], MaxSensors[i], KS, 0); //print this out during testing to see what kinda values we get (high vals for black)
     Sensors[i] = constrain(Sensors[i], 0, KS);
     // threshold for line detect
-    if (Sensors[i]>=450) lineDetected = true;
+    if (Sensors[i]>=550) lineDetected = true;
     if (Sensors[i] >= 50){
       //Weight sensor values by position of sensor?
       //Center sensor should have least priority and extreme sensors should have most priority
-      weightedSum += long(Sensors[i])*(i*KS);
-      sum += Sensors[i];
+      weightedSum += long(Sensors[i])*(abs(i-2))*(i*KS);
+      sum += (abs(i-2))*Sensors[i];
     }
   }
 
@@ -181,6 +200,7 @@ void GetSensorValues(){
   else if (positionX < positionM) positionX = 0;
   else positionX = positionM*2; //basically 4 lol
   positionH = positionX - positionM; // testing ke liye this will be used otherwise it is pointless
+
 
   //Position x = 0 is left and position x = 4 is right
   //0 1 2 3 4
@@ -214,9 +234,17 @@ bool checkPosition(char *str){
 }
 
 void MotorControl(int running){
+  
+  //explore();
+
   if(lineDetected){
     //Case 1
     if(running){
+        speedLeft = BaseSpeed + PIDvalue;
+        speedRight = BaseSpeed - PIDvalue;
+
+        speedLeft = constrain(speedLeft, 0, 255);
+        speedRight = constrain(speedRight, 0, 255);
       sL = speedLeft;
       sR = speedRight;
       //motor A
@@ -444,15 +472,3 @@ void testSuite(){
   Serial.print(" Running status: ");
   Serial.println(Running);
 }
-
-
-
-
-
-
-
-
-
-
-
-
