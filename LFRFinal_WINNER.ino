@@ -1,8 +1,10 @@
 #define IR 5 //number of IR sensors
-#define BaseSpeed 40 //base speed of motors
+#define BaseSpeed 80 //base speed of motors
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
 #define RevSpeed 40 //backward speed of motors
+#define turnSpeed 80
+
 #define KS 1000 // sensor factor used for calibration
 #define overlap 150 //line centering post calibration
 #define EN1 9
@@ -19,15 +21,23 @@
 
 //PID constants subject to change 
 
+//16/10/2024 For 40 speed
+// Kp = 0.04;
+// rest all 0;
+//17/10/2024 For 80 speed
+// Kp = 0.025
+// Kd = 0.06
+// Ki = 0 This is probably being used to fix the offset of the sensor from the line
+
 // for 60 speed
 // float Kp = 0.04;
 // float Kd = 0.08;
 // float Ki = 0.00;
 
 // for 40 speed
-float Kp = 0.015;
-float Kd = 0.04;
-float Ki = 0.00;
+float Kp = 0.025; //0.0015
+float Kd = 0.06;//0.04
+float Ki = 0.000;
 
 // for 40 speed :Kp = 0.015; for 60 speed: 0.035
 //Kd = 0.3; 0.7
@@ -193,7 +203,11 @@ void GetSensorValues(){
   unsigned int sum = 0;
 
   for (int i = 0; i<IR; i++){
-    Sensors[i] = analogRead(SensorPin[i]);
+    float curVal = 0;
+    for(int j = 0; j < 3; j++){
+      curVal += analogRead(SensorPin[i]);
+    }
+    Sensors[i] = curVal/3;
     //ks,0 -> 1000,0
     //smin < s < smax
     Sensors[i] = map(Sensors[i], MinSensors[i], MaxSensors[i], KS, 0); //print this out during testing to see what kinda values we get (high vals for black)
@@ -203,8 +217,8 @@ void GetSensorValues(){
     if (Sensors[i] >= 50){
       //Weight sensor values by position of sensor?
       //Center sensor should have least priority and extreme sensors should have most priority
-      weightedSum += long(Sensors[i])*(abs(i-2))*(i*KS);
-      sum += (abs(i-2))*Sensors[i];
+      weightedSum += long(Sensors[i])*(i*KS);
+      sum += Sensors[i];
     }
 
     // if(Sensors[0] >= Sens){
@@ -353,36 +367,41 @@ void MotorControl(int running){
   }
 }
 
+void analyzeJunction(){
+  digitalWrite(TPin, 1);
+  //Make sure the bot is going straight while checking junction
+  leftFwd(turnSpeed);
+  rightFwd(turnSpeed);
+  while(!checkPosition("0***0")){
+    delay(10);
+  }
+  digitalWrite(TPin, 0);
+  leftRev(10);
+  rightRev(10);
+}
+
 void explore(){
   //Implementing LSRB
 
   if(checkPosition("11111")){
     detectingJunction = true;
-    while(!checkPosition("0***0")){
-      delay(10);
-    }
-    
+    analyzeJunction();
     detectingJunction = false;
     //TODO Add L to the turns list;
     turnLeft();
   } else if (checkPosition("111*0")) {
     //Turn left
     detectingJunction = true;
-    while(!checkPosition("0***0")){
-      delay(10);
-    }
-    
+    analyzeJunction();
     detectingJunction = false;
     //TODO Add L to the turns list;
     turnLeft();
 
   } else if (checkPosition("0*111")) {
+    digitalWrite(TPin, 1);
     //Turn right
     detectingJunction = true;
-    while(!checkPosition("0***0")){
-      delay(10);
-    }
-
+    analyzeJunction();
     detectingJunction = false;
     if(checkPosition("**1**")){
       //TODO add S to the turns list;
@@ -434,7 +453,6 @@ void adjustSpeed(){
 //Maybe check if only the middle sensor gives a reading??
 //PID should be able to handle the alighnment later
 
-#define turnSpeed 30
 
 void turnRight(){
   Serial.println("Turning Right...");
