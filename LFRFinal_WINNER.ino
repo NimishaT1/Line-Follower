@@ -35,9 +35,9 @@
 // float Ki = 0.00;
 
 // for 40 speed
-float Kp = 0.025; //0.0015
-float Kd = 0.06;//0.04
-float Ki = 0.000;
+float Kp = 0.05; //0.0015
+float Kd = 0.05;//0.04
+float Ki = 0.0;
 
 // for 40 speed :Kp = 0.015; for 60 speed: 0.035
 //Kd = 0.3; 0.7
@@ -63,7 +63,6 @@ bool lineDetected = false;
 
 //Running status
 bool Running = false; //set to true for testing, make it false later on
-int curState = 0;
 
 //test shit
 int sL = 0, sR = 0;
@@ -86,107 +85,9 @@ int speedRight = 0;
 //Switch Pins
 int StartSwitch = 11;
 int switchState = 0;
-int switchPin = 12;
 
 bool detectingJunction = false;
 bool turning = false;
-
-//Linked list stuff
-struct Node{
-  char val;
-  Node* next;
-};
-
-Node* start = new Node();
-Node* top = start;
-
-void append(char s){
-  top->val = s;
-  top->next = new Node();
-  top = top->next;
-}
-
-Node* replace(Node* A, char s){
-  //replaces three nodes (starting with prev) with one node
-  // ABC* becomes s*
-  // returns pointer to node after s
-  A->val = s;
-  Node* B = A->next;
-  Node* C = B->next;
-  A->next = C->next;
-  delete B;
-  delete C;
-  return A->next;
-}
-
-void shorten(){
-  /*
-  shortening table:
-  LBL -> S
-  LBS -> R
-  LBR -> B
-  SBL -> R
-  SBS -> B
-  SBR -> L
-  RBL -> B
-  RBS -> L
-  RBR -> S
-  */
-  bool B;
-  do{
-    B = false;
-    Node* prev = start;
-    if (prev->next==top || prev->next->next==top) break;
-    Node* cur = prev->next;
-    Node* post = cur->next;
-    char r, prevval, postval;
-    while (true){
-      prevval = prev->val;
-      postval = post->val;
-      /*
-      Serial.print("Checking: ");
-      Serial.print(prevval);
-      Serial.print(cur->val);
-      Serial.println(postval);
-      */
-      if(cur->val == 'B'){
-        if ( (prevval=='L' && postval=='L') || (prevval=='R' && postval=='R') ) r='S';
-        else if ( (prevval=='L' && postval=='S') || (prevval=='S' && postval=='L') ) r='R';
-        else if ( (prevval=='S' && postval=='R') || (prevval=='R' && postval=='S') ) r='L';
-        else r='B';
-        B = true;
-        /*
-        Serial.print("Replacing: ");
-        Serial.print(prevval);
-        Serial.print(cur->val);
-        Serial.print(postval);
-        Serial.print(" with ");
-        Serial.println(r);
-        */
-        prev = replace(prev, r);
-        if (prev==top || prev->next==top || prev->next->next==top) break;
-        cur = prev->next;
-        post = cur->next;
-      }
-      else{
-        prev = cur;
-        if (prev==top || prev->next==top || prev->next->next==top) break;
-        cur = prev->next;
-        post = cur->next;
-      }
-    }
-  }while(B);
-}
-
-void print(){
-  Node* temp = start;
-  while(temp != top){
-    Serial.print(temp->val);
-    temp = temp->next;
-  }
-  Serial.println();
-}
-//////////////////////////
 
 
 //function prototypes
@@ -202,6 +103,18 @@ void check_and_toggle_switch(void);
 void testSuite(void);
 
 bool checkPosition(char *str);
+
+void brake(){
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(EN1, 30);
+  analogWrite(EN2, 30);
+  delay(200);
+  analogWrite(0);
+  analogWrite(0);
+}
  
 void setup(){
   Serial.begin(500000);
@@ -214,12 +127,9 @@ void setup(){
   pinMode(IN4, OUTPUT); //originally setting this to high sets right to fwd
   pinMode(EN2, OUTPUT);//setting this to high will put Motor B in FWD
   pinMode(StartSwitch, INPUT_PULLUP);
-  pinMode(switchPin, INPUT);
   pinMode(TPin, OUTPUT);
   pinMode(TPinLeft, OUTPUT);
   pinMode(TPinRight, OUTPUT);
-
-  switchState = digitalRead(switchPin);
 
   // Motor A
   digitalWrite(IN1, HIGH);
@@ -262,7 +172,7 @@ void loop(){
   CalculatePID();
 
   //Follow line
-  MotorControl(curState);
+  MotorControl(Running);
   testSuite();
 }
 
@@ -376,7 +286,7 @@ bool checkPosition(char *str){
 void MotorControl(int running){
   
   if(running){
-    explore();
+    //explore();
 
   }
 
@@ -489,16 +399,15 @@ void explore(){
     detectingJunction = true;
     analyzeJunction();
     detectingJunction = false;
+    //TODO Add L to the turns list;
     turnLeft();
-    track[top++] = 'L';
   } else if (checkPosition("111*0")) {
     //Turn left
     detectingJunction = true;
     analyzeJunction();
     detectingJunction = false;
+    //TODO Add L to the turns list;
     turnLeft();
-    track[top++] = 'L';
-
 
   } else if (checkPosition("0*111")) {
     digitalWrite(TPin, 1);
@@ -507,14 +416,14 @@ void explore(){
     analyzeJunction();
     detectingJunction = false;
     if(checkPosition("**1**")){
-      track[top++] = 'S';
+      //TODO add S to the turns list;
     } else {
-      track[top++] = 'R';
+      //TODO add R to the turns list;
       turnRight();
     }
 
   } else if (checkPosition("00000")) {
-      track[top++] = 'B';
+    //TODO add  B to the turns list;
     turnBack();
   }
 }
@@ -541,13 +450,6 @@ void rightRev(int speed){
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, HIGH);
   analogWrite(EN2, speed);
-}
-
-void brake(){
-    digitalWrite(IN1, LOW);
-    digitalWrite(IN2, LOW);
-    digitalWrite(IN3, LOW);
-    digitalWrite(IN4, LOW);
 }
 
 void adjustSpeed(){
@@ -642,17 +544,11 @@ void turnBack() {
 }
 
 void check_and_toggle_switch(){
-  if (digitalRead(StartSwitch) != HIGH){
+  switchState = digitalRead(StartSwitch);
+  if (switchState != HIGH){
     delay(2000); // avoid repeated reading
     Running = !Running;
   }
-
-  if(digitalRead(switchPin) != switchState){
-    delay(1000);
-    curState++;
-    switchState = !switchState;
-  }
-
 }
 
 void testSuite(){
