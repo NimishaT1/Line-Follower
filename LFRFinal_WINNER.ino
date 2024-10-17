@@ -63,6 +63,7 @@ bool lineDetected = false;
 
 //Running status
 bool Running = false; //set to true for testing, make it false later on
+int curState = 0;
 
 //test shit
 int sL = 0, sR = 0;
@@ -85,6 +86,7 @@ int speedRight = 0;
 //Switch Pins
 int StartSwitch = 11;
 int switchState = 0;
+int switchPin = 12;
 
 bool detectingJunction = false;
 bool turning = false;
@@ -118,9 +120,12 @@ void setup(){
   pinMode(IN4, OUTPUT); //originally setting this to high sets right to fwd
   pinMode(EN2, OUTPUT);//setting this to high will put Motor B in FWD
   pinMode(StartSwitch, INPUT_PULLUP);
+  pinMode(switchPin, INPUT);
   pinMode(TPin, OUTPUT);
   pinMode(TPinLeft, OUTPUT);
   pinMode(TPinRight, OUTPUT);
+
+  switchState = digitalRead(switchPin);
 
   // Motor A
   digitalWrite(IN1, HIGH);
@@ -163,7 +168,7 @@ void loop(){
   CalculatePID();
 
   //Follow line
-  MotorControl(Running);
+  MotorControl(curState);
   testSuite();
 }
 
@@ -444,6 +449,13 @@ void rightRev(int speed){
   analogWrite(EN2, speed);
 }
 
+void brake(){
+    digitalWrite(IN1, LOW);
+    digitalWrite(IN2, LOW);
+    digitalWrite(IN3, LOW);
+    digitalWrite(IN4, LOW);
+}
+
 void adjustSpeed(){
   //Call after calculating PID Constants
   speedLeft = BaseSpeed + PIDvalue;
@@ -536,11 +548,17 @@ void turnBack() {
 }
 
 void check_and_toggle_switch(){
-  switchState = digitalRead(StartSwitch);
-  if (switchState != HIGH){
+  if (digitalRead(StartSwitch) != HIGH){
     delay(2000); // avoid repeated reading
     Running = !Running;
   }
+
+  if(digitalRead(switchPin) != switchState){
+    delay(1000);
+    curState++;
+    switchState = !switchState;
+  }
+
 }
 
 void testSuite(){
