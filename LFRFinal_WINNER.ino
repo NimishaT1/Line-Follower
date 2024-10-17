@@ -91,8 +91,102 @@ int switchPin = 12;
 bool detectingJunction = false;
 bool turning = false;
 
-char track[500];
-int top = 0;
+//Linked list stuff
+struct Node{
+  char val;
+  Node* next;
+};
+
+Node* start = new Node();
+Node* top = start;
+
+void append(char s){
+  top->val = s;
+  top->next = new Node();
+  top = top->next;
+}
+
+Node* replace(Node* A, char s){
+  //replaces three nodes (starting with prev) with one node
+  // ABC* becomes s*
+  // returns pointer to node after s
+  A->val = s;
+  Node* B = A->next;
+  Node* C = B->next;
+  A->next = C->next;
+  delete B;
+  delete C;
+  return A->next;
+}
+
+void shorten(){
+  /*
+  shortening table:
+  LBL -> S
+  LBS -> R
+  LBR -> B
+  SBL -> R
+  SBS -> B
+  SBR -> L
+  RBL -> B
+  RBS -> L
+  RBR -> S
+  */
+  bool B;
+  do{
+    B = false;
+    Node* prev = start;
+    if (prev->next==top || prev->next->next==top) break;
+    Node* cur = prev->next;
+    Node* post = cur->next;
+    char r, prevval, postval;
+    while (true){
+      prevval = prev->val;
+      postval = post->val;
+      /*
+      Serial.print("Checking: ");
+      Serial.print(prevval);
+      Serial.print(cur->val);
+      Serial.println(postval);
+      */
+      if(cur->val == 'B'){
+        if ( (prevval=='L' && postval=='L') || (prevval=='R' && postval=='R') ) r='S';
+        else if ( (prevval=='L' && postval=='S') || (prevval=='S' && postval=='L') ) r='R';
+        else if ( (prevval=='S' && postval=='R') || (prevval=='R' && postval=='S') ) r='L';
+        else r='B';
+        B = true;
+        /*
+        Serial.print("Replacing: ");
+        Serial.print(prevval);
+        Serial.print(cur->val);
+        Serial.print(postval);
+        Serial.print(" with ");
+        Serial.println(r);
+        */
+        prev = replace(prev, r);
+        if (prev==top || prev->next==top || prev->next->next==top) break;
+        cur = prev->next;
+        post = cur->next;
+      }
+      else{
+        prev = cur;
+        if (prev==top || prev->next==top || prev->next->next==top) break;
+        cur = prev->next;
+        post = cur->next;
+      }
+    }
+  }while(B);
+}
+
+void print(){
+  Node* temp = start;
+  while(temp != top){
+    Serial.print(temp->val);
+    temp = temp->next;
+  }
+  Serial.println();
+}
+//////////////////////////
 
 
 //function prototypes
