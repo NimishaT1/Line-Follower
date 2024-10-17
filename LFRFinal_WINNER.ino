@@ -1,9 +1,9 @@
 #define IR 5 //number of IR sensors
-#define BaseSpeed 80 //base speed of motors
+#define BaseSpeed 40 //base speed of motors
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
 #define RevSpeed 40 //backward speed of motors
-#define turnSpeed 80
+#define turnSpeed 30
 
 #define KS 1000 // sensor factor used for calibration
 #define overlap 150 //line centering post calibration
@@ -35,9 +35,9 @@
 // float Ki = 0.00;
 
 // for 40 speed
-float Kp = 0.05; //0.0015
-float Kd = 0.05;//0.04
-float Ki = 0.0;
+float Kp = 0.025; //0.0015
+float Kd = 0.08;//0.04
+float Ki = 0.001;
 
 // for 40 speed :Kp = 0.015; for 60 speed: 0.035
 //Kd = 0.3; 0.7
@@ -112,8 +112,8 @@ void brake(){
   analogWrite(EN1, 30);
   analogWrite(EN2, 30);
   delay(200);
-  analogWrite(0);
-  analogWrite(0);
+  analogWrite(EN1, 0);
+  analogWrite(EN2, 0);
 }
  
 void setup(){
@@ -162,6 +162,7 @@ void setup(){
 }
 
 void loop(){
+
   //control sequence
   check_and_toggle_switch();
 
@@ -286,7 +287,7 @@ bool checkPosition(char *str){
 void MotorControl(int running){
   
   if(running){
-    //explore();
+    explore();
 
   }
 
@@ -381,15 +382,13 @@ void MotorControl(int running){
 
 void analyzeJunction(){
   digitalWrite(TPin, 1);
+  brake();
   //Make sure the bot is going straight while checking junction
   leftFwd(turnSpeed);
   rightFwd(turnSpeed);
   while(!checkPosition("0***0")){
     delay(10);
   }
-  digitalWrite(TPin, 0);
-  leftRev(10);
-  rightRev(10);
 }
 
 void explore(){
@@ -472,8 +471,7 @@ void turnRight(){
   int c = 0;
   bool online = true;
   digitalWrite(TPinRight, 1);
-  leftFwd(0);
-  rightFwd(0);
+  brake();
   delay(1000);
   leftFwd(turnSpeed);
   rightRev(turnSpeed);
@@ -505,8 +503,7 @@ void turnLeft() {
   int c = 0;
   bool online = true;
   digitalWrite(TPinLeft, 1);
-  leftFwd(0);
-  rightFwd(0);
+  brake();
   delay(1000);
   rightFwd(turnSpeed);
   leftRev(turnSpeed);
