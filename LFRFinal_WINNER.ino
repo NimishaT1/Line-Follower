@@ -89,6 +89,9 @@ int switchState = 0;
 bool detectingJunction = false;
 bool turning = false;
 
+char track[500];
+int top = 0;
+
 
 //function prototypes
 void Calibrate(void);
@@ -387,15 +390,16 @@ void explore(){
     detectingJunction = true;
     analyzeJunction();
     detectingJunction = false;
-    //TODO Add L to the turns list;
     turnLeft();
+    track[top++] = 'L';
   } else if (checkPosition("111*0")) {
     //Turn left
     detectingJunction = true;
     analyzeJunction();
     detectingJunction = false;
-    //TODO Add L to the turns list;
     turnLeft();
+    track[top++] = 'L';
+
 
   } else if (checkPosition("0*111")) {
     digitalWrite(TPin, 1);
@@ -404,14 +408,14 @@ void explore(){
     analyzeJunction();
     detectingJunction = false;
     if(checkPosition("**1**")){
-      //TODO add S to the turns list;
+      track[top++] = 'S';
     } else {
-      //TODO add R to the turns list;
+      track[top++] = 'R';
       turnRight();
     }
 
   } else if (checkPosition("00000")) {
-    //TODO add  B to the turns list;
+      track[top++] = 'B';
     turnBack();
   }
 }
