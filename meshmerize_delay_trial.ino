@@ -49,7 +49,6 @@ long P = 0, I = 0, D = 0, PIDvalue = 0, PrevError = 0;
 //sensor PINS and Sensors
 
 
-
 const byte SensorPin[IR] = {A0,A1,A2,A3,A4}; //sensor pins array
 int Sensors[IR]; //array that stores sensor values
 int MinSensors[IR]; //array that stores minimum values of sensors
