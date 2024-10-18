@@ -507,7 +507,7 @@ void turnRight(){
   int c = 0;
   bool online = true;
   digitalWrite(TPinRight, 1);
-  delay(1000);
+  //delay(1000);
   leftFwd(turnSpeed+10);
   rightRev(turnSpeed);
 
@@ -524,7 +524,7 @@ void turnRight(){
     }
   leftFwd(turnSpeed+10);
   rightRev(turnSpeed);
-    delay(5);
+    delay(2);
   }
   
   while(!checkPosition("****1")){
@@ -552,7 +552,7 @@ void turnLeft() {
   int c = 0;
   bool online = false;
   digitalWrite(TPinLeft, 1);
-  delay(1000);
+  //delay(1000);
   rightFwd(turnSpeed+10);
   leftRev(turnSpeed);
 
@@ -573,7 +573,7 @@ void turnLeft() {
     rightFwd(turnSpeed+10);
     leftRev(turnSpeed);
     
-    delay(5);
+    delay(2);
   // }
 
  
@@ -604,7 +604,7 @@ void turnBack() {
   while(!checkPosition("**1**")or(!checkPosition("*1***"))){
   leftRev(turnSpeed);
   rightFwd(turnSpeed);
-    delay(5);
+    delay(1);
   }
     int i = 250;
   while(i!=0){
