@@ -3,7 +3,7 @@
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
 #define RevSpeed 40 //backward speed of motors
-#define turnSpeed 45
+#define turnSpeed 40
 
 #define KS 1000 // sensor factor used for calibration
 #define overlap 150 //line centering post calibration
@@ -16,7 +16,8 @@
 #define TPinRight 7
 
 #define historySize 3
-#define stopTime 500
+#define stopTime 600
+#define turnMultiplier 0.6
 //IN is direction control
 //EN is speed control
 //LEFT: EN1 = 9  IN1 = 5  IN2 = 4 RIGHT: EN2 = 10  IN3 = 2  IN4 = 3
@@ -37,9 +38,9 @@
 // float Ki = 0.00;
 
 // for 40 speed
-float Kp = 0.02; //0.0015       ---- 6.40V, 11.61V
+float Kp = 0.022; //0.0015       ---- 6.40V, 11.61V
 float Kd = 0.05;//0.04       ---- base speed 50, turn speed 45 others 40
-float Ki = 0.001;
+float Ki = 0.002;
 
 // for 40 speed :Kp = 0.015; for 60 speed: 0.035
 //Kd = 0.3; 0.7
@@ -50,7 +51,7 @@ long P = 0, I = 0, D = 0, PIDvalue = 0, PrevError = 0;
 
 
 
-const byte SensorPin[IR] = {A0,A1,A2,A3,A4}; //sensor pins array
+const byte SensorPin[IR] = {A1,A2,A3,A4,A5}; //sensor pins array
 int Sensors[IR]; //array that stores sensor values
 int MinSensors[IR]; //array that stores minimum values of sensors
 int MaxSensors[IR]; //array that stores maximum values of sensors
@@ -130,10 +131,10 @@ void brake(){
 }
 
 void stop(){
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, LOW);
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, HIGH);
   
   analogWrite(EN1, 0);
   analogWrite(EN2, 0);
@@ -378,10 +379,10 @@ bool checkPosition(char *str){
     switch (str[i])
     {
     case '1':
-      match = Sensors[i]>=550;
+      match = Sensors[i]>=Sens;
       break;
     case '0':
-      match = Sensors[i]<550;
+      match = Sensors[i]<Sens;
       break;
     }
   }
@@ -390,9 +391,10 @@ bool checkPosition(char *str){
 
 void MotorControl(int running){
   
-  if(running && curState == 1){
+  if(running){
     explore();
   }
+  
   
   if(lineDetected){
     //Case 1
@@ -487,7 +489,7 @@ void MotorControl(int running){
 
 int getTurn(){
   //checks which turn it needs to take based on the current sensor values 
-  if(checkPosition("1****")){ //left
+  if(checkPosition("1**")){ //left
     return 1;
   }
   else if(checkPosition("0***1")){ //right
@@ -512,7 +514,7 @@ int getTurn(){
 void explore(){
   //Implementing LSRB
 
-  if(checkPosition("1*1**") || checkPosition("**1*1")){
+  if(checkPosition("1*1*") || checkPosition("*1*1")){
     //junction detected, either left or right turn exists
     detectingJunction = true;
     
@@ -601,13 +603,17 @@ void turnRight(){
   //delay(1000);
   leftFwd(turnSpeed);
   rightRev(turnSpeed);
+  delay(50);
 
+  leftFwd(turnSpeed*turnMultiplier);
+  rightRev(turnSpeed*turnMultiplier);
+  
   //Wait 1 second
   //delay(200);
 
   while(c < 2){
     GetSensorValues();
-    if(checkPosition("****1") != online){
+    if(checkPosition("**1") != online){
       c++;
       online = !online;
     }
@@ -615,7 +621,7 @@ void turnRight(){
 
   brake();
   
-  // while(!checkPosition("****1")){
+  // while(!checkPosition("**1")){
   //   rightFwd(turnSpeed+10);
   //   leftRev(turnSpeed);
   //   continue;
@@ -626,7 +632,7 @@ void turnRight(){
   int i = 500;
   while(i!=0){
     GetSensorValues();
-    CalculatePID(0.02, 3, 0);
+    CalculatePID();
     MotorControl(0);
     
     i--;
@@ -647,7 +653,10 @@ void turnLeft() {
   //delay(1000);
   rightFwd(turnSpeed);
   leftRev(turnSpeed);
-  delay(200);
+  delay(50);
+  rightFwd(turnSpeed*turnMultiplier);
+  leftRev(turnSpeed*turnMultiplier);
+
   //Wait 1 second
   //delay(200);
 
@@ -655,7 +664,7 @@ void turnLeft() {
 
   while(c < 2){
     GetSensorValues();
-    if(checkPosition("**1**") != online){
+    if(checkPosition("1**") != online){
       c++;
       
       online = !online;
@@ -665,7 +674,7 @@ void turnLeft() {
 
  
 
-  // while(!checkPosition("1****")){
+  // while(!checkPosition("1**")){
   //   rightFwd(turnSpeed+10);
   //   leftRev(turnSpeed);
   //   continue;
@@ -674,7 +683,7 @@ void turnLeft() {
   int i = 500;
   while(i!=0){
     GetSensorValues();
-    CalculatePID(0.02, 0.04, 0);
+    CalculatePID();
     MotorControl(0);
     i--;
   }
@@ -692,16 +701,17 @@ void turnBack() {
   //Try turning at full speed???
   leftRev(turnSpeed);
   rightFwd(turnSpeed);
+  delay(100);
 
-  while(!checkPosition("**1**")){
-  leftRev(turnSpeed);
-  rightFwd(turnSpeed);
-  GetSensorValues();
+  while(!checkPosition("1**")){
+    leftRev(turnSpeed*turnMultiplier);
+    rightFwd(turnSpeed*turnMultiplier);
+    GetSensorValues();
   }
   int i = 300;
   while(i!=0){
     GetSensorValues();
-    CalculatePID(0.02, 10);
+    CalculatePID();
     MotorControl(0);
     i--;
   }
@@ -717,11 +727,7 @@ void check_and_toggle_switch(){
   if (switchState != HIGH){
     delay(2000); // avoid repeated reading
     Running = !Running;
-    curState++;
-
-    if(curState == 1) {
-      // shorten();
-    }
+    digitalWrite(TPin, 0);
   }
 }
 
