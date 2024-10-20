@@ -7,13 +7,10 @@
 
 #define KS 1000 // sensor factor used for calibration
 #define overlap 150 //line centering post calibration
-#define EN1 9
+#define EN1 6
 #define EN2 10
-#define TPin 8
+#define TPin 13
 #define Sens 550
-
-#define TPinLeft 6
-#define TPinRight 7
 
 #define historySize 3
 #define stopTime 600
@@ -139,76 +136,6 @@ void stop(){
   analogWrite(EN1, 0);
   analogWrite(EN2, 0);
 }
- 
-// struct Node{
-//   char val;
-//   Node* next;
-// };
-
-// Node* start = new Node();
-// Node* top = start;
-// void append(char s){
-//   top->val = s;
-//   top->next = new Node();
-//   top = top->next;
-// }
-
-// Node* replace(Node* A, char s){
-//   //replaces three nodes (starting with prev) with one node
-//   // ABC* becomes s*
-//   // returns pointer to node after s
-//   A->val = s;
-//   Node* B = A->next;
-//   Node* C = B->next;
-//   A->next = C->next;
-//   delete B;
-//   delete C;
-//   return A->next;
-// }
-// void shorten(){
-//   /*
-//   shortening table:
-//   LBL -> S
-//   LBS -> R
-//   LBR -> B
-//   SBL -> R
-//   SBS -> B
-//   SBR -> L
-//   RBL -> B
-//   RBS -> L
-//   RBR -> S
-//   */
-//   bool B;
-//   do{
-//     B = false;
-//     Node* prev = start;
-//     if (prev->next==top || prev->next->next==top) break;
-//     Node* cur = prev->next;
-//     Node* post = cur->next;
-//     char r, prevval, postval;
-//     while (true){
-//       prevval = prev->val;
-//       postval = post->val;
-//       if(cur->val == 'B'){
-//         if ( (prevval=='L' && postval=='L') || (prevval=='R' && postval=='R') ) r='S';
-//         else if ( (prevval=='L' && postval=='S') || (prevval=='S' && postval=='L') ) r='R';
-//         else if ( (prevval=='S' && postval=='R') || (prevval=='R' && postval=='S') ) r='L';
-//         else r='B';
-//         B = true;
-//         prev = replace(prev, r);
-//         if (prev==top || prev->next==top || prev->next->next==top) break;
-//         cur = prev->next;
-//         post = cur->next;
-//       }
-//       else{
-//         prev = cur;
-//         if (prev==top || prev->next==top || prev->next->next==top) break;
-//         cur = prev->next;
-//         post = cur->next;
-//       }
-//     }
-//   }while(B);
-// }
 
 void setup(){
   Serial.begin(500000);
@@ -222,8 +149,6 @@ void setup(){
   pinMode(EN2, OUTPUT);//setting this to high will put Motor B in FWD
   pinMode(StartSwitch, INPUT_PULLUP);
   pinMode(TPin, OUTPUT);
-  pinMode(TPinLeft, OUTPUT);
-  pinMode(TPinRight, OUTPUT);
 
   // Motor A
   digitalWrite(IN1, HIGH);
@@ -234,8 +159,6 @@ void setup(){
   digitalWrite(IN4, LOW);
 
   analogWrite(TPin, 140);
-  digitalWrite(TPinLeft, 1);
-  digitalWrite(TPinRight, 1);
 
   // Switches
   //pinMode(StartSwitch, INPUT); 
@@ -250,8 +173,6 @@ void setup(){
   Serial.println("Calibration Ended");
   // Calibration End
   analogWrite(TPin, 0);
-  digitalWrite(TPinRight, 0);
-  digitalWrite(TPinLeft, 0);
   delay(500);
 }
 
@@ -599,7 +520,6 @@ void turnRight(){
   turning = true;
   int c = 0;
   bool online = true;
-  digitalWrite(TPinRight, 1);
   //delay(1000);
   leftFwd(turnSpeed);
   rightRev(turnSpeed);
@@ -640,7 +560,6 @@ void turnRight(){
 
   lastTurnTime = millis();
 
-  digitalWrite(TPinRight, 0);
   turning = false;
 }
 
@@ -649,7 +568,6 @@ void turnLeft() {
   turning = true;
   int c = 0;
   bool online = true;
-  digitalWrite(TPinLeft, 1);
   //delay(1000);
   rightFwd(turnSpeed);
   leftRev(turnSpeed);
@@ -690,7 +608,6 @@ void turnLeft() {
 
   lastTurnTime = millis();
 
-  digitalWrite(TPinLeft, 0);
   turning = false;
 }
 
