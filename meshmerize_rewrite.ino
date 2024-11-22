@@ -13,19 +13,19 @@
 #define sens 550
 
 
-#define AIN1 2
-#define BIN1 7
-#define AIN2 4
-#define BIN2 8
-#define PWMA 5
-#define PWMB 6
+#define AIN1 3
+#define BIN1 5
+#define AIN2 2
+#define BIN2 4
+#define PWMA 11
+#define PWMB 10
 #define STBY 9
 
-const int offsetA = 1;
-const int offsetB = 1;
+const int offsetA = -1;
+const int offsetB = -1;
 
-Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
-Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
+Motor motor2 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
+Motor motor1 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
 
 float Kp = 0.022; //0.0015       ---- 6.40V, 11.61V
 float Kd = 0.05;//0.04       ---- base speed 50, turn speed 45 others 40
@@ -39,7 +39,7 @@ long P = 0, I = 0, D = 0, PIDvalue = 0, PrevError = 0;
 //sensor PINS and Sensors
 
 
-const byte SensorPin[IR] = {A1,A2,A3,A4,A5}; //sensor pins array
+const byte SensorPin[IR] = {A0,A1,A2,A3,A4}; //sensor pins array
 int Sensors[IR]; //array that stores sensor values
 int MinSensors[IR]; //array that stores minimum values of sensors
 int MaxSensors[IR]; //array that stores maximum values of sensors
@@ -57,18 +57,18 @@ int speedLeft = 0;
 int speedRight = 0;
 
 //Switch Pins
-int StartSwitch = 11;
+int StartSwitch = 9;
 int switchState = 0;
 
 //Led Indicator
-int TPin = 13;
+int TPin = 7;
 
 int sL = 0, sR = 0;
 
 
 void calibrate(void);
 void getSensorValues(void);
-void calculatePID(void);
+void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki);
 void dryRun(void);
 void check_switch(void);
 
@@ -84,7 +84,12 @@ void setup(){
     brake(motor1, motor2);
     Serial.println("Calibration Complete");
 
+    digitalWrite(TPin,1);
+
     homeToLine();
+
+    digitalWrite(TPin,0);
+
 
     delay(500);
 }
@@ -167,6 +172,12 @@ void getSensorValues(){
   else positionX = positionM*2; //basically 4 lol
   positionH = positionX - positionM; // testing ke liye this will be used otherwise it is pointless
 
+  if (lineDetected) {
+    digitalWrite(TPin, 1);
+  } else {
+    digitalWrite(TPin, 0);
+  }
+
 }
 
 void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki){
@@ -206,27 +217,35 @@ void dryRun(){
 }
 
 void homeToLine(){
-    while(abs(P) < HOMING_THRESHOLD){
+
+    getSensorValues();
+    calculatePID();
+
+    digitalWrite(TPin,1);
+
+    while(abs(P) < overlap){
         if (P<-overlap){
             speedLeft = -PIDvalue;
-            speedRight = speedLeft;
-            sL = speedLeft;
-            sR = speedRight;
-            motor1.drive(-speedLeft);
-            motor2.drive(speedRight);
-        } else if (P > overlap){
-            speedLeft = PIDvalue;
-            speedRight = speedLeft;
+            speedRight = PIDvalue;
             sL = speedLeft;
             sR = speedRight;
             motor1.drive(speedLeft);
-            motor2.drive(-speedRight);
+            motor2.drive(speedRight);
+        } else if (P > overlap){
+            speedLeft = PIDvalue;
+            speedRight = -PIDvalue;
+            sL = speedLeft;
+            sR = speedRight;
+            motor1.drive(speedLeft);
+            motor2.drive(speedRight);
         } else {
             sL = 0;
             sR = 0;
             brake(motor1, motor2);
         }
     }
+
+    brake(motor1, motor2);
 }
 
 void check_switch(){
