@@ -2,11 +2,11 @@
 
 #define HOMING_THRESHOLD 500
 #define IR 5 //number of IR sensors
-#define BaseSpeed 50 //base speed of motors
+#define BaseSpeed 80 //base speed of motors
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
 #define RevSpeed 40 //backward speed of motors
-#define turnSpeed 40
+#define turnSpeed 60
 
 #define KS 1000 // sensor factor used for calibration
 #define overlap 150 //line centering post calibration
@@ -21,11 +21,14 @@
 #define PWMB 10
 #define STBY 9
 
-const int offsetA = -1;
-const int offsetB = -1;
+#define IRR 8
+#define IRL 6
 
-Motor motor2 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
-Motor motor1 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
+const int offsetA = 1;
+const int offsetB = 1;
+
+Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
+Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
 
 float Kp = 0.022; //0.0015       ---- 6.40V, 11.61V
 float Kd = 0.05;//0.04       ---- base speed 50, turn speed 45 others 40
@@ -65,6 +68,8 @@ int TPin = 7;
 
 int sL = 0, sR = 0;
 
+bool leftPath=0,rightPath=0,straightPath=0;
+
 
 void calibrate(void);
 void getSensorValues(void);
@@ -89,7 +94,6 @@ void setup(){
     homeToLine();
 
     digitalWrite(TPin,0);
-
 
     delay(500);
 }
@@ -141,6 +145,7 @@ void calibrate(void){
 
 void getSensorValues(){
   lineDetected = false;
+  bool straightPathDetected = true;
   unsigned long weightedSum = 0;
   unsigned int sum = 0;
 
@@ -149,6 +154,7 @@ void getSensorValues(){
     Sensors[i] = map(Sensors[i], MinSensors[i], MaxSensors[i], KS, 0); //print this out during testing to see what kinda values we get (high vals for black)
     Sensors[i] = constrain(Sensors[i], 0, KS);
     if (Sensors[i]>=sens) lineDetected = true;
+    if (Sensors[i]<sens) straightPathDetected = false;
     if (Sensors[i] >= 50){
       weightedSum += long(Sensors[i])*(i*KS);
       sum += Sensors[i];
@@ -166,6 +172,10 @@ void getSensorValues(){
     //   digitalWrite(TPinRight, 0);
     // }
   }
+
+  leftPath = digitalRead(IRL);
+  rightPath = digitalRead(IRR);
+  straightPath = straightPathDetected;
 
   if (lineDetected) positionX = weightedSum/sum; // stores the weighted mean of the index of the ir sensors
   else if (positionX < positionM) positionX = 0;
@@ -189,6 +199,14 @@ void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki){
 }
 
 void dryRun(){
+
+    if(rightPath){
+      turnRight();
+    } else if (straightPath){
+      return;
+    } else if (leftPath) {
+      turnLeft();
+    }
 
     if(lineDetected){
         speedLeft = BaseSpeed + PIDvalue;
@@ -214,6 +232,26 @@ void dryRun(){
         }
     }
 
+}
+
+void turnRight(){
+  brake(motor1, motor2);
+  while(rightPath){
+    motor2.brake();
+    motor1.drive(turnSpeed);
+    getSensorValues();
+  }
+  motor1.brake();
+}
+
+void turnLeft(){
+  brake(motor1, motor2);
+  while(leftPath){
+    motor1.brake();
+    motor2.drive(turnSpeed);
+    getSensorValues();
+  }
+  motor2.brake();
 }
 
 void homeToLine(){
