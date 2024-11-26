@@ -2,7 +2,7 @@
 
 #define HOMING_THRESHOLD 500
 #define IR 5 //number of IR sensors
-#define BaseSpeed 80 //base speed of motors
+#define BaseSpeed 95 //base speed of motors
 #define CalSpeed 40 // calibration speed of motors
 #define FwdSpeed 40 //forward speed of motors
 #define RevSpeed 40 //backward speed of motors
@@ -236,22 +236,20 @@ void dryRun(){
 
 void turnRight(){
   brake(motor1, motor2);
-  while(rightPath){
-    motor2.brake();
-    motor1.drive(turnSpeed);
+  while(rightPath || !lineDetected){
+    motor2.drive(turnSpeed/2);
+    motor1.drive(turnSpeed*2);
     getSensorValues();
   }
-  motor1.brake();
 }
 
 void turnLeft(){
   brake(motor1, motor2);
-  while(leftPath){
-    motor1.brake();
-    motor2.drive(turnSpeed);
+  while(leftPath || !lineDetected){
+    motor1.drive(turnSpeed/2);
+    motor2.drive(turnSpeed*2);
     getSensorValues();
   }
-  motor2.brake();
 }
 
 void homeToLine(){
