@@ -10,8 +10,8 @@
 #define overlap 150 //line centering post calibration
 #define sens 550
 
-Motor A is left motor
-Motor B is right motor
+//Motor A is left motor
+//Motor B is right motor
 
 #define AIN1 3
 #define BIN1 5
@@ -70,7 +70,7 @@ bool leftPath=0,rightPath=0,straightPath=0;
 
 void calibrate(void);
 void getSensorValues(void);
-void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki);
+void calculatePID(void);
 void dryRun(void);
 void check_switch(void);
 void driveLeft(int speed);
@@ -88,7 +88,7 @@ void setup(){
 
     Serial.println("Calibration Started");
     calibrate();
-    brake(motor1, motor2);
+    brake();
     Serial.println("Calibration Complete");
 
     digitalWrite(TPin,1);
@@ -195,7 +195,7 @@ void getSensorValues(){
 
 }
 
-void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki){
+void calculatePID(){
   P = positionX - positionM;
   I = P + PrevError; // OG was I = P + PrevError
   D = P - PrevError;
@@ -242,7 +242,7 @@ void dryRun(){
 }
 
 void turnRight(){
-  brake(motor1, motor2);
+  brake();
   while(rightPath || !lineDetected){
     // motor2.drive(turnSpeed/2);
     // motor1.drive(turnSpeed*2);
@@ -253,7 +253,7 @@ void turnRight(){
 }
 
 void turnLeft(){
-  brake(motor1, motor2);
+  brake();
   while(leftPath || !lineDetected){
     // motor1.drive(turnSpeed/2);
     // motor2.drive(turnSpeed*2);
@@ -311,7 +311,7 @@ void driveLeft(int speed){
   digitalWrite(STBY, 1);
   if(speed*offsetA > 0){
     digitalWrite(AIN1, 1);
-    digitalWrite(AIN2, 0)
+    digitalWrite(AIN2, 0);
   } else if (speed*offsetA < 0){
     digitalWrite(AIN1, 0);
     digitalWrite(AIN2, 1);
@@ -324,7 +324,7 @@ void driveRight(int speed){
   digitalWrite(STBY, 1);
   if(speed*offsetB > 0){
     digitalWrite(BIN1, 1);
-    digitalWrite(BIN2, 0)
+    digitalWrite(BIN2, 0);
   } else if (speed*offsetB < 0){
     digitalWrite(BIN1, 0);
     digitalWrite(BIN2, 1);
