@@ -1,18 +1,22 @@
+#include <Arduino.h>
+#include <RotaryEncoder.h>
 #include <SparkFun_TB6612.h>
 
 #define HOMING_THRESHOLD 500
-#define IR 5         // number of IR sensors
-#define BaseSpeed 95 // base speed of motors
-#define CalSpeed 40  // calibration speed of motors
-#define FwdSpeed 40  // forward speed of motors
-#define RevSpeed 40  // backward speed of motors
-#define turnSpeed 60
+#define IR 5          // number of IR sensors
+#define BaseSpeed 120 // base speed of motors
+#define CalSpeed 80   // calibration speed of motors
+#define FwdSpeed 40   // forward speed of motors
+#define RevSpeed 40   // backward speed of motors
+#define turnSpeed 90
 
 #define KS 1000     // sensor factor used for calibration
 #define overlap 300 // line centering post calibration
 #define sens 550
 #define turnThreshold 1
 #define turnThresholdMax 1
+
+#define ticksPerTurn 63
 
 #define AIN1 3
 #define BIN1 5
@@ -25,16 +29,26 @@
 #define IRR 8
 #define IRL 6
 
-char path[] = {'L', 'S', 'L'};
+#define LEN1 7
+#define LEN2 9
+#define REN1 12
+#define REN2 13
+
+#define TPin A5
+
+char path[500];
 int top = 0;
 
 void appendToPath(char c) { path[top++] = c; }
 
 const int offsetA = 1;
-const int offsetB = 1;
+const int offsetB = -1;
 
 Motor motor1 = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
 Motor motor2 = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
+
+RotaryEncoder rightEncoder(REN1, REN2, RotaryEncoder::LatchMode::TWO03);
+RotaryEncoder leftEncoder(LEN1, LEN2, RotaryEncoder::LatchMode::TWO03);
 
 float Kp = 0.022; // 0.0015       ---- 6.40V, 11.61V
 float Kd = 0.05;  // 0.04       ---- base speed 50, turn speed 45 others 40
@@ -65,13 +79,10 @@ int speedLeft = 0;
 int speedRight = 0;
 
 // Switch Pins
-int StartSwitch = 9;
+int StartSwitch = A6;
 int switchState = 0;
 
 int currentRound = 0;
-
-// Led Indicator
-int TPin = 7;
 
 int sL = 0, sR = 0;
 
@@ -162,6 +173,9 @@ void getSensorValues() {
   unsigned long weightedSum = 0;
   unsigned int sum = 0;
 
+  rightEncoder.tick();
+  leftEncoder.tick();
+
   for (int i = 0; i < IR; i++) {
     Sensors[i] = analogRead(SensorPin[i]);
     Sensors[i] = map(Sensors[i], MinSensors[i], MaxSensors[i], KS,
@@ -194,7 +208,7 @@ void getSensorValues() {
 
   straightPath = straightPathDetected;
 
-  if(digitalRead(IRL)){
+  if (digitalRead(IRL)) {
     leftPathVal++;
     leftPathVal = min(turnThresholdMax, leftPathVal);
   } else {
@@ -202,7 +216,7 @@ void getSensorValues() {
     leftPathVal = max(0, leftPathVal);
   }
 
-  if(digitalRead(IRR)){
+  if (digitalRead(IRR)) {
     rightPathVal++;
     rightPathVal = min(turnThresholdMax, rightPathVal);
   } else {
@@ -244,8 +258,6 @@ void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki) {
 }
 
 void dryRun() {
-  return;
-
   if (rightPath) {
     appendToPath('R');
     turnRight();
@@ -287,32 +299,32 @@ void dryRun() {
   }
 }
 
-void finalRun(){
+void finalRun() {
   digitalWrite(TPin, 1);
-  if(leftPath || rightPath){
+  if (leftPath || rightPath) {
     brake(motor1, motor2);
     delay(500);
     int t = top;
-    while(t-- > -1){
+    while (t-- > -1) {
       digitalWrite(TPin, 0);
       delay(100);
       digitalWrite(TPin, 1);
       delay(100);
     }
     switch (path[top]) {
-      case 'R':
-        turnRight();
-        break;
-      case 'S':
-        while(leftPath || rightPath){
-          motor1.drive(BaseSpeed);
-          motor2.drive(BaseSpeed);
-          getSensorValues();
-        }
-        break;
-      case 'L':
-        turnLeft();
-        break;
+    case 'R':
+      turnRight();
+      break;
+    case 'S':
+      while (leftPath || rightPath) {
+        motor1.drive(BaseSpeed);
+        motor2.drive(BaseSpeed);
+        getSensorValues();
+      }
+      break;
+    case 'L':
+      turnLeft();
+      break;
     }
     top++;
   }
@@ -344,18 +356,20 @@ void finalRun(){
 
 void turnRight() {
   brake(motor1, motor2);
-  while (rightPath || Sensors[4] < sens) {
-    motor2.drive(turnSpeed / 2);
-    motor1.drive(turnSpeed * 2);
+  int initialPos = leftEncoder.getPosition();
+  motor2.drive(turnSpeed / 2);
+  motor1.drive(turnSpeed * 2);
+  while (abs(leftEncoder.getPosition() - initialPos) < ticksPerTurn) {
     getSensorValues();
   }
 }
 
 void turnLeft() {
   brake(motor1, motor2);
-  while (leftPath || Sensors[0] < sens) {
-    motor1.drive(turnSpeed / 2);
-    motor2.drive(turnSpeed * 2);
+  int initialPos = rightEncoder.getPosition();
+  motor1.drive(turnSpeed / 2);
+  motor2.drive(turnSpeed * 2);
+  while (abs(rightEncoder.getPosition() - initialPos) < ticksPerTurn) {
     getSensorValues();
   }
 }
@@ -363,9 +377,10 @@ void turnLeft() {
 void turnBack() {
   delay(200);
   brake(motor1, motor2);
-  while (deadEnd) {
-    motor1.drive(-turnSpeed);
-    motor2.drive(turnSpeed);
+  int initialPos = rightEncoder.getPosition();
+  motor1.drive(-turnSpeed);
+  motor2.drive(turnSpeed);
+  while (abs(rightEncoder.getPosition() - initialPos) < ticksPerTurn * 2) {
     getSensorValues();
   }
 }
@@ -406,8 +421,8 @@ void homeToLine() {
 }
 
 void check_switch() {
-  switchState = digitalRead(StartSwitch);
-  if (switchState != HIGH) {
+  switchState = analogRead(StartSwitch);
+  if (switchState < 127) {
     delay(2000); // avoid repeated reading
     digitalWrite(TPin, 0);
     currentRound++;
