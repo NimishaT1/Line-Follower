@@ -36,10 +36,86 @@
 
 #define TPin A5
 
+//PATH STORING AND SHORTENING LOGIC
+struct Node{
+    char val;
+    Node* next;
+};
+
+Node* start;
+Node* top;
+
+void appendToPath(char s){
+    top->val = s;
+    top->next = new Node();
+    top = top->next;
+}
+
+Node* replace(Node* A, char s){
+    //replaces three nodes (starting with prev) with one node
+    // ABC* becomes s*
+    // returns pointer to node after s
+    A->val = s;
+    Node* B = A->next;
+    Node* C = B->next;
+    A->next = C->next;
+    delete B;
+    delete C;
+    return A->next;
+}
+
+void shortenPath(){
+    /*
+    shortening table:
+    LBL -> S
+    LBS -> R
+    LBR -> B
+    SBL -> R
+    SBS -> B
+    SBR -> L
+    RBL -> B
+    RBS -> L
+    RBR -> S
+    */
+    bool B;
+    do{
+    B = false;
+    Node* prev = start;
+    if (prev->next==top || prev->next->next==top) break;
+    Node* cur = prev->next;
+    Node* post = cur->next;
+    char r, prevval, postval;
+    while (true){
+        prevval = prev->val;
+        postval = post->val;
+        if(cur->val == 'B'){
+        if ( (prevval=='L' && postval=='L') || (prevval=='R' && postval=='R') ) r='S';
+        else if ( (prevval=='L' && postval=='S') || (prevval=='S' && postval=='L') ) r='R';
+        else if ( (prevval=='S' && postval=='R') || (prevval=='R' && postval=='S') ) r='L';
+        else r='B';
+        B = true;
+        prev = replace(prev, r);
+        if (prev==top || prev->next==top || prev->next->next==top) break;
+        cur = prev->next;
+        post = cur->next;
+        }
+        else{
+        prev = cur;
+        if (prev==top || prev->next==top || prev->next->next==top) break;
+        cur = prev->next;
+        post = cur->next;
+        }
+    }
+    }while(B);
+}
+//path logic end
+
+/*
 char path[500];
 int top = 0;
 
 void appendToPath(char c) { path[top++] = c; }
+*/
 
 const int offsetA = 1;
 const int offsetB = -1;
@@ -127,6 +203,7 @@ void loop() {
 
   if (currentRound == 1) {
     dryRun();
+    shortenPath();
   } else if (currentRound == 2) {
     finalRun();
   } else {
@@ -258,6 +335,9 @@ void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki) {
 }
 
 void dryRun() {
+  start = new Node;
+  top = start;
+
   if (rightPath) {
     appendToPath('R');
     turnRight();
@@ -299,8 +379,11 @@ void dryRun() {
   }
 }
 
+
+//TODO CHANGE TO LINKEDLIST PATH
 void finalRun() {
   digitalWrite(TPin, 1);
+  
   if (leftPath || rightPath) {
     brake(motor1, motor2);
     delay(500);
