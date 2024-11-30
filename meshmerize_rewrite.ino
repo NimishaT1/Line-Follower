@@ -4,24 +4,22 @@
 
 #define HOMING_THRESHOLD 500
 #define IR 5          // number of IR sensors
-#define BaseSpeed 120 // base speed of motors
+#define BaseSpeed 150 // base speed of motors
 #define CalSpeed 80   // calibration speed of motors
-#define FwdSpeed 40   // forward speed of motors
-#define RevSpeed 40   // backward speed of motors
-#define turnSpeed 90
+#define FwdSpeed 160  // forward speed of motors
+#define RevSpeed 160  // backward speed of motors
+#define turnSpeed 100
 
 #define KS 1000     // sensor factor used for calibration
 #define overlap 300 // line centering post calibration
 #define sens 550
-#define turnThreshold 1
-#define turnThresholdMax 1
 
-#define ticksPerTurn 63
+#define ticksPerTurn 100
 
 #define AIN1 3
-#define BIN1 5
+#define BIN1 13
 #define AIN2 2
-#define BIN2 4
+#define BIN2 12
 #define PWMA 11
 #define PWMB 10
 #define STBY 9
@@ -31,8 +29,8 @@
 
 #define LEN1 7
 #define LEN2 9
-#define REN1 12
-#define REN2 13
+#define REN1 4
+#define REN2 5
 
 #define TPin A5
 
@@ -95,6 +93,7 @@ void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki);
 void dryRun(void);
 void finalRun(void);
 void check_switch(void);
+void updateEncoders(void);
 
 void setup() {
   Serial.begin(500000);
@@ -166,15 +165,16 @@ void calibrate(void) {
   }
 }
 
+void updateEncoders() {
+  rightEncoder.tick();
+  leftEncoder.tick();
+}
+
 void getSensorValues() {
   lineDetected = false;
   deadEnd = 1;
-  bool straightPathDetected = true;
   unsigned long weightedSum = 0;
   unsigned int sum = 0;
-
-  rightEncoder.tick();
-  leftEncoder.tick();
 
   for (int i = 0; i < IR; i++) {
     Sensors[i] = analogRead(SensorPin[i]);
@@ -186,13 +186,11 @@ void getSensorValues() {
       lineDetected = true;
       deadEnd = false;
     }
-    if (Sensors[i] < sens)
-      straightPathDetected = false;
+
     if (Sensors[i] >= 50) {
       weightedSum += long(Sensors[i]) * (i * KS);
       sum += Sensors[i];
     }
-
     // if(Sensors[0] >= sens){
     //   digitalWrite(TPinLeft, 1);
     // } else {
@@ -206,26 +204,11 @@ void getSensorValues() {
     // }
   }
 
-  straightPath = straightPathDetected;
+  if (Sensors[2] >= sens)
+    straightPath = true;
 
-  if (digitalRead(IRL)) {
-    leftPathVal++;
-    leftPathVal = min(turnThresholdMax, leftPathVal);
-  } else {
-    leftPathVal--;
-    leftPathVal = max(0, leftPathVal);
-  }
-
-  if (digitalRead(IRR)) {
-    rightPathVal++;
-    rightPathVal = min(turnThresholdMax, rightPathVal);
-  } else {
-    rightPathVal--;
-    rightPathVal = max(0, rightPathVal);
-  }
-
-  leftPath = leftPathVal >= turnThreshold;
-  rightPath = rightPathVal >= turnThreshold;
+  leftPath = digitalRead(IRL);
+  rightPath = digitalRead(IRR);
 
   if (leftPath || rightPath) {
     deadEnd = false;
@@ -241,12 +224,6 @@ void getSensorValues() {
   positionH =
       positionX -
       positionM; // testing ke liye this will be used otherwise it is pointless
-
-  if (lineDetected) {
-    digitalWrite(TPin, 1);
-  } else {
-    digitalWrite(TPin, 0);
-  }
 }
 
 void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki) {
@@ -259,15 +236,15 @@ void calculatePID(float Kp = Kp, float Kd = Kd, float Ki = Ki) {
 
 void dryRun() {
   if (rightPath) {
-    appendToPath('R');
+    //    appendToPath('R');
     turnRight();
-  } else if (straightPath) {
-    appendToPath('S');
-    return;
-  } else if (leftPath) {
-    appendToPath('L');
-    turnLeft();
   }
+  // else if (leftPath && straightPath) {
+  //   // appendToPath('S');
+  // } else if (leftPath) {
+  //   // appendToPath('L');
+  //   turnLeft();
+  // }
 
   if (deadEnd) {
     appendToPath('B');
@@ -356,31 +333,38 @@ void finalRun() {
 
 void turnRight() {
   brake(motor1, motor2);
+  digitalWrite(TPin, 1);
+  updateEncoders();
   int initialPos = leftEncoder.getPosition();
   motor2.drive(turnSpeed / 2);
   motor1.drive(turnSpeed * 2);
   while (abs(leftEncoder.getPosition() - initialPos) < ticksPerTurn) {
     getSensorValues();
+    updateEncoders();
   }
+  digitalWrite(TPin, 0);
 }
 
 void turnLeft() {
   brake(motor1, motor2);
+  digitalWrite(TPin, 1);
+  updateEncoders();
   int initialPos = rightEncoder.getPosition();
   motor1.drive(turnSpeed / 2);
   motor2.drive(turnSpeed * 2);
   while (abs(rightEncoder.getPosition() - initialPos) < ticksPerTurn) {
     getSensorValues();
+    updateEncoders();
   }
+  digitalWrite(TPin, 0);
 }
 
 void turnBack() {
-  delay(200);
+  delay(400);
   brake(motor1, motor2);
-  int initialPos = rightEncoder.getPosition();
   motor1.drive(-turnSpeed);
   motor2.drive(turnSpeed);
-  while (abs(rightEncoder.getPosition() - initialPos) < ticksPerTurn * 2) {
+  while (!lineDetected) {
     getSensorValues();
   }
 }
@@ -394,15 +378,15 @@ void homeToLine() {
 
   while (abs(P) > overlap || !lineDetected) {
     if (P < -overlap) {
-      speedLeft = -PIDvalue;
-      speedRight = PIDvalue;
+      speedLeft = -CalSpeed;
+      speedRight = CalSpeed;
       sL = speedLeft;
       sR = speedRight;
       motor1.drive(speedLeft);
       motor2.drive(speedRight);
     } else if (P > overlap) {
-      speedLeft = PIDvalue;
-      speedRight = -PIDvalue;
+      speedLeft = CalSpeed;
+      speedRight = -CalSpeed;
       sL = speedLeft;
       sR = speedRight;
       motor1.drive(speedLeft);
@@ -422,7 +406,7 @@ void homeToLine() {
 
 void check_switch() {
   switchState = analogRead(StartSwitch);
-  if (switchState < 127) {
+  if (switchState < 10) {
     delay(2000); // avoid repeated reading
     digitalWrite(TPin, 0);
     currentRound++;
