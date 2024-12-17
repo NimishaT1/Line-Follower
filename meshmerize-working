@@ -1,0 +1,554 @@
+#include <SparkFun_TB6612.h>
+#include <Arduino.h>
+#include <RotaryEncoder.h>
+
+
+//----------- DEFINITIONS -------------
+//line type-------------------
+#define BLACKLINE true
+//speed n' stuff---------------
+#define BASESPEED 150 //try to increase speed, maybe to 200?, encoder kinda shitty in speed try turning without encoders if time permits
+#define CALSPEED 80
+#define TURNSPEED 160 //used when turning (duh) and also PID when array is off the line
+#define SENSITIVIY 550
+#define LINEWIDTH 300 //half of the line width in IR array units (1 IR array length = 1000 IR array units)
+#define TICKSPERTURN 700 //this shit sucks there has to be a better way than figuring out values for each speed, (apparently doesn't depend on speed?)
+//motor pins------------------
+#define STBY 9 //what this?
+//motor A
+#define AIN1 3
+#define AIN2 2
+#define PWMA 11
+#define offsetA 1
+//motor B
+#define BIN1 13
+#define BIN2 12
+#define PWMB 10
+#define offsetB -1
+//encoders--------------------
+#define LEN1 7
+#define LEN2 9 //same pin as STBY?
+#define REN1 4
+#define REN2 5
+//digital IRs-----------------
+#define IRR 8
+#define IRL 6
+//switch led------------------
+#define SWITCH A6
+#define TPIN A0
+//-----------------------------------
+
+
+//----------- VARIABLES --------------
+//PID ---------------
+float Kp = 0.022;
+float Kd = 0.05;
+float Ki = 0.002;
+long PIDValue=0, prevError=0;
+//motors -------------
+Motor leftMotor = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
+Motor rightMotor = Motor(BIN1, BIN2, PWMB, offsetB, STBY);
+RotaryEncoder leftEncoder(LEN1, LEN2, RotaryEncoder::LatchMode::TWO03);
+RotaryEncoder rightEncoder(REN1, REN2, RotaryEncoder::LatchMode::TWO03);
+int speedLeft = 0;
+int speedRight = 0;
+//5 IR array -----------
+const byte sensorPin[5] = {A1, A2, A3, A4, A5};
+int sensors[5];
+int minSensors[5];
+int maxSensors[5];
+//position ------------
+unsigned long positionX = 0; //position of line wrt sensors
+const unsigned long positionM = (5*1000 - 1000)/2; //gives middle position of IR array
+//line detection ------
+bool lineDetected = false;
+bool leftDetected = false, rightDetected = false, straightDetected = false, deadEnd = false;
+//path ----------------
+struct Node{
+    char val;
+    Node* next;
+};
+Node* start = new Node;
+Node* top = start;
+
+
+//-------- FUNCTIONS ---------------------
+//util
+void waitForSwitch(void);
+void updateSensorValues(void);
+void calculatePID(float Kp=Kp, float Kd=Kd, float Ki=Ki);
+void updateEncoders(void);
+//different runs
+void calibrate(void);
+void dryRun(void);
+void mainRun(void);
+//movement
+void homeToLine(int dir=0); //-1/1 dir forces bot to search for line at left/right if it isn't already on line
+void followLine(void);
+int checkJunction(void); //check endgoal detection, also check the temp failsafe for when bot is at an angle to the line and digital IRs trigger
+void turnRight(void); //check if homeToLine's PID makes turning better, 
+void turnLeft(void);
+void turnBack(void);
+//path functions
+void appendToPath(char s);
+Node* replace(Node* A, char s);
+void shortenPath(void);
+void printPath(void);
+
+
+void setup() {
+    //Setup
+    Serial.begin(500000);
+    pinMode(SWITCH, INPUT_PULLUP);
+    pinMode(TPIN, OUTPUT);
+    
+    waitForSwitch();
+    Serial.println("calibrating");
+    calibrate();
+    Serial.println("done");
+    waitForSwitch();
+    dryRun();
+    shortenPath();
+    //if(top->next!=NULL) top->next=NULL;
+    waitForSwitch();
+    
+    mainRun();
+}
+
+void loop(){} //I'm not a big fan of loop but unfortunately it doesn't upload without a declaration :/
+
+void waitForSwitch(void){
+    digitalWrite(TPIN, 0);
+    /*
+    //led blinking
+    digitalWrite(TPIN, 1);
+    unsigned long lastTime = millis();
+    unsigned long currentTime = lastTime;
+    bool ledOn = true;
+    */
+
+    int switchState;
+    while(true){
+        /*
+        //led blinking
+        currentTime = millis();
+        if(currentTime-lastTime >= 1000){
+            lastTime = currentTime;
+            ledOn = !ledOn;
+            digitalWrite(TPIN, ledOn);
+        }
+        */
+
+        switchState = analogRead(SWITCH);
+        if(switchState<10) break;
+        delay(20);
+    }
+    digitalWrite(TPIN, 0);
+    delay(1000);
+}
+
+void updateSensorValues(void){
+    lineDetected = false;
+    deadEnd = true;
+    unsigned long weightedSum = 0;
+    unsigned int sum = 0;
+
+    //updating encoders
+    leftEncoder.tick();
+    rightEncoder.tick();
+
+    //updating IR array
+    for(int i=0; i<5; i++){
+        sensors[i] = analogRead(sensorPin[i]);
+        if(BLACKLINE)
+          sensors[i] = map(sensors[i], minSensors[i], maxSensors[i], 1000, 0);
+        else
+          sensors[i] = map(sensors[i], minSensors[i], maxSensors[i], 0, 1000);
+        sensors[i] = constrain(sensors[i], 0, 1000);
+
+        if(sensors[i]>=SENSITIVIY) lineDetected = true;
+
+        if(sensors[i]>=50){
+            weightedSum += long(sensors[i])*i*1000;
+            sum += sensors[i];
+        }
+    }
+
+    if(lineDetected) positionX = weightedSum/sum;
+    else if(positionX < positionM) positionX = 0;
+    else positionX = 4000;
+
+    //updating digital IR
+    if(sensors[1]>=SENSITIVIY || sensors[2] >= SENSITIVIY || sensors[3] >= SENSITIVIY)
+        straightDetected = true;
+    else
+        straightDetected = false;
+    if(BLACKLINE){
+      leftDetected = digitalRead(IRL);
+      rightDetected = digitalRead(IRR);
+    }
+    else{
+      leftDetected = !digitalRead(IRL);
+      rightDetected = !digitalRead(IRR);
+    }
+    if(leftDetected || rightDetected || lineDetected)
+        deadEnd = false;
+}
+
+void calculatePID(float Kp=Kp, float Kd=Kd, float Ki=Ki){
+    float P, I, D;
+    P = positionX - positionM;
+    I = P + prevError;
+    D = P - prevError;
+    PIDValue = Kp*P + Kd*D + Ki*I;
+    prevError = P;
+}
+
+void calibrate(void){
+    //initialise sensor readings, min and max values
+    for (int i = 0; i < 5; i++) {
+        sensors[i] = analogRead(sensorPin[i]);
+        minSensors[i] = sensors[i];
+        maxSensors[i] = sensors[i];
+    }
+
+    digitalWrite(TPIN, 1);
+
+    // calibrate sensors
+    leftMotor.drive(CALSPEED);
+    rightMotor.drive(-CALSPEED);
+    for (int i = 0; i < 7000; i++) {
+        for (int j = 0; j < 5; j++) {
+            sensors[j] = analogRead(sensorPin[j]);
+            if (sensors[j] < minSensors[j])
+                minSensors[j] = sensors[j];
+            if (sensors[j] > maxSensors[j])
+                maxSensors[j] = sensors[j];
+        }
+    }
+    brake(leftMotor, rightMotor);
+
+    //homeToLine
+    homeToLine();
+    digitalWrite(TPIN, 0);
+}
+
+void homeToLine(int dir=0){
+    updateSensorValues();
+    if(!lineDetected){
+        if(dir==1) positionX = 2*positionM;
+        else if(dir==-1) positionX = 0;
+    }
+    signed long P = positionX - positionM;
+    while(abs(P) > LINEWIDTH || !lineDetected){
+        if (P < -LINEWIDTH){
+            speedLeft = -CALSPEED;
+            speedRight = CALSPEED;
+            leftMotor.drive(speedLeft);
+            rightMotor.drive(speedRight);
+        }
+        else if (P > -LINEWIDTH){
+            speedLeft = CALSPEED;
+            speedRight = -CALSPEED;
+            leftMotor.drive(speedLeft);
+            rightMotor.drive(speedRight);
+        }
+        else {
+            speedLeft = 0;
+            speedRight = 0;
+            brake(leftMotor, rightMotor);
+        }
+
+        updateSensorValues();
+        calculatePID();
+        P = positionX - positionM;
+    }
+  brake(leftMotor, rightMotor);
+}
+
+void dryRun(void){
+    while(true){
+        followLine();
+        int junction = checkJunction();
+        brake(leftMotor, rightMotor);
+        if(junction>=8){
+            if(junction==8+4+2+1) break;
+            else{
+                if(junction&4==1 && junction&1==0) homeToLine(1);
+                else if(junction&1==1 && junction&4==0) homeToLine(-1);
+                else break;
+            }
+        }
+        else{
+            if(junction>=4){
+                appendToPath('R');
+                turnRight();
+            }
+            else if(junction>=2){
+                appendToPath('S');
+                continue;
+            }
+            else if(junction>=1){
+                appendToPath('L');
+                turnLeft();
+            }
+            else{
+                appendToPath('B');
+                turnBack();
+            }
+        }
+        brake(leftMotor, rightMotor);
+    }
+    brake(leftMotor, rightMotor);
+    digitalWrite(TPIN, 1);
+}
+
+void mainRun(void){
+    Node* p = start;
+    while(p->next!=NULL){
+        followLine();
+        int junction = checkJunction();
+        if(junction==8+4+2+1) break;
+        brake(leftMotor, rightMotor);
+        if(p->val=='R') turnRight();
+        else if(p->val=='S') continue;
+        else if(p->val=='L') turnLeft();
+        p = p->next;
+    }
+    followLine();
+    checkJunction();
+    brake(leftMotor, rightMotor);
+    digitalWrite(TPIN, 1);
+}
+
+void followLine(void){
+    float timeOffLine = 0;
+    float leftLineAt = -1;
+    updateSensorValues();
+    calculatePID();
+    while(!((leftDetected||rightDetected)&&straightDetected) && (timeOffLine<=100)) {
+      updateSensorValues();
+      calculatePID();
+      if (lineDetected){
+          //digitalWrite(TPIN, 1);
+          speedLeft = BASESPEED + PIDValue;
+          speedRight = BASESPEED - PIDValue;
+          speedLeft = constrain(speedLeft, 0, 255);
+          speedRight = constrain(speedRight, 0, 255);
+          leftLineAt = -1;
+      }
+      else {
+          //digitalWrite(TPIN, 0);
+          if(leftLineAt<0) leftLineAt = millis();
+          else timeOffLine = millis()-leftLineAt;
+
+          if(positionX==4000){
+              speedLeft = TURNSPEED;
+              speedRight = -TURNSPEED;
+          }
+          else{
+              speedLeft = -TURNSPEED;
+              speedRight = TURNSPEED;
+          }
+      }
+      leftMotor.drive(speedLeft);
+      rightMotor.drive(speedRight);
+    }
+    brake(leftMotor, rightMotor);
+}
+
+int checkJunction(void){
+    /*
+    junction type:
+    binary number of form ERSL
+    dead end - 0
+    left only - 1
+    straight only - 2
+    right only - 4
+    tooLong triggered (error) - 8
+    */
+    if (deadEnd){
+        Serial.println("B");
+        return 0;
+    }
+    bool finalLeftDetected = leftDetected, finalRightDetected = rightDetected, finalStraightDetected = straightDetected;
+    unsigned long startTime = millis();
+    unsigned long currentTime = startTime;
+    float timeOffLine = 0;
+    float leftLineAt = -1;
+    unsigned long tooLong = 500;
+    leftMotor.drive(CALSPEED);
+    rightMotor.drive(CALSPEED);
+    while((leftDetected || rightDetected) && (timeOffLine<=100) && !(currentTime-startTime>=tooLong)){
+        currentTime = millis();
+        updateSensorValues();
+        if(!straightDetected){
+          if(leftLineAt<0) leftLineAt = millis();
+          else timeOffLine = millis()-leftLineAt;
+        }
+        else{
+          leftLineAt = -1;
+          timeOffLine = 0;
+        }
+        if (leftDetected) finalLeftDetected = true;
+        if (rightDetected) finalRightDetected = true;
+    }
+    if(currentTime-startTime<tooLong) delay(500);
+    brake(leftMotor, rightMotor);
+    updateSensorValues();
+    finalStraightDetected = straightDetected;
+
+    int junction = 0;
+    if (finalLeftDetected){
+      junction+=1;
+      Serial.print("L");
+    }  
+    if (finalStraightDetected){
+      junction+=2;
+      Serial.print("S");
+    }
+    if (finalRightDetected){
+      junction+=4;
+      Serial.print("R");
+    }
+    if (currentTime-startTime >= tooLong){
+      junction+=8;
+      Serial.print("E");
+    }
+    Serial.println();
+    return junction;
+}
+
+void turnRight(void) {
+    brake(leftMotor, rightMotor);
+    int initialPos = leftEncoder.getPosition();
+    //digitalWrite(TPIN, 1);
+    leftMotor.drive(TURNSPEED);
+    while (abs(leftEncoder.getPosition() - initialPos) < 500) {
+      leftEncoder.tick();
+    }
+    brake(leftMotor, rightMotor);
+    //digitalWrite(TPIN, 0);
+    homeToLine(1);
+}
+
+void turnLeft(void) {
+    brake(leftMotor, rightMotor);
+    int initialPos = rightEncoder.getPosition();
+    //digitalWrite(TPIN, 1);
+    rightMotor.drive(TURNSPEED);
+    while (abs(rightEncoder.getPosition() - initialPos) < 500) {
+      rightEncoder.tick();
+    }
+    brake(leftMotor, rightMotor);
+    //digitalWrite(TPIN, 0);
+    homeToLine(-1);
+}
+
+void turnBack(void) {
+    brake(leftMotor, rightMotor);
+    int initialPos = leftEncoder.getPosition();
+    //digitalWrite(TPIN, 1);
+    leftMotor.drive(TURNSPEED);
+    rightMotor.drive(-TURNSPEED);
+    while (abs(leftEncoder.getPosition() - initialPos) < TICKSPERTURN) {
+      leftEncoder.tick();
+    }
+    brake(leftMotor, rightMotor);
+    homeToLine(1);
+    //digitalWrite(TPIN, 0);
+}
+
+void appendToPath(char s){
+    top->val = s;
+    top->next = new Node();
+    top = top->next;
+    top->next = NULL;
+}
+
+Node* replace(Node* A, char s){
+    //replaces three nodes (starting with prev) with one node
+    // ABC* becomes s*
+    // returns pointer to node after s
+    A->val = s;
+    Node* B = A->next;
+    Node* C = B->next;
+    A->next = C->next;
+    delete B;
+    delete C;
+    return A->next;
+}
+
+void shortenPath(){
+    /*
+    shortening table:
+    LBL -> S
+    LBS -> R
+    LBR -> B
+    SBL -> R
+    SBS -> B
+    SBR -> L
+    RBL -> B
+    RBS -> L
+    RBR -> S
+    */
+    bool B;
+    do{
+    B = false;
+    Node* prev = start;
+    if (prev->next==top || prev->next->next==top) break;
+    Node* cur = prev->next;
+    Node* post = cur->next;
+    char r, prevval, postval;
+    while (true){
+        prevval = prev->val;
+        postval = post->val;
+        if(cur->val == 'B'){
+        if ( (prevval=='L' && postval=='L') || (prevval=='R' && postval=='R') ) r='S';
+        else if ( (prevval=='L' && postval=='S') || (prevval=='S' && postval=='L') ) r='R';
+        else if ( (prevval=='S' && postval=='R') || (prevval=='R' && postval=='S') ) r='L';
+        else r='B';
+        B = true;
+        prev = replace(prev, r);
+        if (prev==top || prev->next==top || prev->next->next==top) break;
+        cur = prev->next;
+        post = cur->next;
+        }
+        else{
+        prev = cur;
+        if (prev==top || prev->next==top || prev->next->next==top) break;
+        cur = prev->next;
+        post = cur->next;
+        }
+    }
+    }while(B);
+}
+ void blink(void){
+    digitalWrite(TPIN, 1);
+    delay(500);
+    digitalWrite(TPIN, 0);
+  }
+void printPath(void){
+ 
+  top = start;
+  digitalWrite(TPIN, 0);
+  delay(500);
+  while(top->next){
+    Serial.print(top->val);
+    /*
+    if(top->val=='L') turnLeft();
+    else if(top->val=='R') turnRight();
+    else if(top->val=='B') turnBack();
+    else if(top->val=='S') digitalWrite(TPIN, 1);
+    delay(500);
+    digitalWrite(TPIN, 0);
+    */
+    top = top->next;
+  }
+  Serial.println();
+}
+
+
+/*
+
+*/
